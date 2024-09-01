@@ -1,6 +1,7 @@
 import TelegramBot from "node-telegram-bot-api";
-import bucket from "./firebase.js";
+import {bucket} from "./firebase.js";
 import fs from 'fs'
+import { createDocument } from "./db.js";
 const bot = new TelegramBot("7385522997:AAGTxQQ5wdYGF2fCVtC0cJo0PZxmkzNh_oE", {
     polling: {
         interval: 300,
@@ -8,14 +9,13 @@ const bot = new TelegramBot("7385522997:AAGTxQQ5wdYGF2fCVtC0cJo0PZxmkzNh_oE", {
       }    
 })
 
-// Handle /start command
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     const username = msg.from.username;
-  
+    console.log(msg)
     try {
-      
+        createDocument('users', userId.toString(), {username:username})
     } catch (error) {
       console.error('Error registering user:', error);
       bot.sendMessage(chatId, 'Sorry, there was an error registering you. Please try again later.');

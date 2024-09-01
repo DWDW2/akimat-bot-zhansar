@@ -12,8 +12,6 @@ const {
 } = process.env;
 
 export default {
-  host: HOST,
-  hostUrl: HOST_URL,
   firebaseConfig: {
     apiKey: API_KEY,
     authDomain: AUTH_DOMAIN,
