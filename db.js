@@ -1,12 +1,13 @@
-import { firestore as db } from "./firebase.js";
-
+import { db } from "./firebase.js";
+import { addDoc, doc } from "firebase/firestore";
 const createDocument = async (collection, docId, data) => {
     try {
         if (!collection || !docId) {
             throw new Error('Collection name and document ID must be non-empty strings');
         }   
         console.log(`Collection: ${collection}, Document ID: ${docId}`);   
-      const docRef = db.collection(collection).doc(docId);
+        
+      const docRef = db.collection(collection).doc()
       await docRef.set(data);
       console.log(`Document ${docId} created successfully in collection ${collection}`);
     } catch (error) {
