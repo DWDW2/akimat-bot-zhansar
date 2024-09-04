@@ -1,6 +1,4 @@
 import TelegramBot from "node-telegram-bot-api";
-// import {bucket} from "./firebase.js";
-// import { bucket } from "./firebase.js";
 
 const bot = new TelegramBot("7385522997:AAGTxQQ5wdYGF2fCVtC0cJo0PZxmkzNh_oE", {
     polling: {
