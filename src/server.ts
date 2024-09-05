@@ -31,6 +31,17 @@ bot.setMyCommands([
 
 let registrationState: { [key: number]: any } = {};
 
+bot.on('photo', async (msg) => {
+    const chatId = msg.chat.id;
+    const photo = bot.getFileStream(msg.photo[msg.photo.length - 1].file_id);
+    const photoUrl = await uploadFile('reports', `${chatId}_${Date.now()}.jpg`, photo);
+    db.insert(reports).values({
+        photoUrls: [photoUrl]
+    });
+    console.log(photoUrl)
+});
+
+
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
 
