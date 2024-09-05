@@ -1,31 +1,39 @@
-import { pgTable, serial, text, date, varchar } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, date, varchar, integer } from 'drizzle-orm/pg-core';
 
-// Define the main 'reports' table
+export const users = pgTable('users', {
+    id: serial('id').primaryKey().unique(), 
+    firstName: varchar('first_name', { length: 255 }),
+    lastName: varchar('last_name', { length: 255 }),
+    telegramId: text('telegram_id'), 
+    language: varchar('language', { length: 255 }),
+    phoneNumber: varchar('phone_number', { length: 255 }),
+    email: varchar('email', { length: 255 }),
+});
+
 export const reports = pgTable('reports', {
-    id: serial('id').primaryKey(), // id - int
-    reportText: text('report_text'), // report_text - string
-    department: varchar('department', { length: 255 }), // department - string
-    sender: varchar('sender', { length: 255 }), // sender - string
-    receiver: varchar('receiver', { length: 255 }), // receiver - string
-    receiverAnswer: text('receiver_answer'), // receiver_answer - string
-    photoUrls: text('photo_urls').array(), // photo_urls - string[]
-    videoUrl: varchar('video_url', { length: 255 }), // video_url - string
-    dateReport: date('date_report'), // date_report - date
-    dateResponse: date('date_response'), // date_response - date
-    status: varchar('status', { length: 255 }), // status - string
+    id: serial('id').primaryKey(),
+    reportText: text('report_text'),
+    department: varchar('department', { length: 255 }),
+    userId: integer('user_id').references(() => users.id),
+    receiver: varchar('receiver', { length: 255 }),
+    receiverAnswer: text('receiver_answer'),
+    photoUrls: text('photo_urls').array(),
+    videoUrl: varchar('video_url', { length: 255 }),
+    dateReport: date('date_report'),
+    dateResponse: date('date_response'),
+    status: varchar('status', { length: 255 }),
 });
 
-// Define the 'исполнители' (executors) table
 export const executors = pgTable('executors', {
-    id: serial('id').primaryKey(), // id - int
-    surnameName: varchar('surname_name', { length: 255 }), // surname_name - string
-    telegramAcc: varchar('telegram_acc', { length: 255 }), // telegram_acc - string
+    id: serial('id').primaryKey(),
+    surnameName: varchar('surname_name', { length: 255 }),
+    telegramAcc: varchar('telegram_acc', { length: 255 }),
 });
 
-// TypeScript types for the 'reports' table
+// TypeScript types remain the same
 export type Report = typeof reports.$inferSelect
 export type NewReport = typeof reports.$inferInsert
-
-// TypeScript types for the 'executors' table
 export type Executor = typeof executors.$inferSelect
 export type NewExecutor = typeof executors.$inferInsert
+export type User = typeof users.$inferSelect
+export type NewUser = typeof users.$inferInsert
