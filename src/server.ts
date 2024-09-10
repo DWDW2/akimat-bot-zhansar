@@ -3,6 +3,7 @@ import uploadFile from "./upload";
 import { db } from "./db";
 import { NewUser, reports, users } from "./db/shema";
 import { eq } from "drizzle-orm";
+
 const bot = new TelegramBot("7385522997:AAGTxQQ5wdYGF2fCVtC0cJo0PZxmkzNh_oE", {
     polling: {
         interval: 300,
@@ -41,7 +42,25 @@ bot.on('photo', async (msg) => {
     console.log(photoUrl)
 });
 
+// Handler for /help command
+bot.onText(/\/help/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, '🆘 Чтобы использовать бота, отправьте команду, и я помогу вам.\n\n🆘 To use the bot, just send a command and I will assist you.');
+  });
+  
+  // Handler for /info command
+  bot.onText(/\/info/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, 'ℹ️ Этот бот помогает управлять вашими задачами. \n\nℹ️ This bot helps you manage your tasks.');
+  });
+  
+  // Handler for /feedback command
+  bot.onText(/\/feedback/, (msg) => {
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, '📝 Пожалуйста, оставьте свой отзыв. Мы ценим ваше мнение! \n\n📝 Please leave your feedback. We appreciate your input!');
+  });
 
+  
 bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
 
@@ -274,3 +293,10 @@ bot.on('message', async (msg) => {
 });
 
 console.log('Bot is running...');
+
+
+// google sheet api
+// user reg ---> done
+// report continue 
+// fix userflow ---> 
+// second bot ---> make so that executors will have access to answer to report
