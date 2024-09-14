@@ -1,39 +1,66 @@
-import { pgTable, serial, text, date, varchar, integer } from 'drizzle-orm/pg-core';
+import mongoose, { Schema, Document } from 'mongoose';
 
-export const users = pgTable('users', {
-    id: serial('id').primaryKey().unique(), 
-    firstName: varchar('first_name', { length: 255 }),
-    lastName: varchar('last_name', { length: 255 }),
-    telegramId: text('telegram_id'), 
-    language: varchar('language', { length: 255 }),
-    phoneNumber: varchar('phone_number', { length: 255 }),
-    email: varchar('email', { length: 255 }),
+// User Schema
+interface IUser extends Document {
+  fullName: string;
+  chatId: number;
+  language: string;
+  phoneNumber: string;
+  email: string;
+}
+
+const userSchema: Schema = new Schema({
+  fullName: { type: String, required: true },
+  username: { type: String },
+  chatId: { type: Number, required: true, unique: true },
+  language: { type: String, required: true },
+  phoneNumber: { type: String, required: true, unique: true },
+  email: { type: String }
 });
 
-export const reports = pgTable('reports', {
-    id: serial('id').primaryKey(),
-    reportText: text('report_text'),
-    department: varchar('department', { length: 255 }),
-    userId: integer('user_id').references(() => users.id),
-    receiver: varchar('receiver', { length: 255 }),
-    receiverAnswer: text('receiver_answer'),
-    photoUrls: text('photo_urls').array(),
-    videoUrl: varchar('video_url', { length: 255 }),
-    dateReport: date('date_report'),
-    dateResponse: date('date_response'),
-    status: varchar('status', { length: 255 }),
+// Report Schema
+interface IReport extends Document {
+  reportText: string;
+  department: string;
+  chatId: number;
+  receiverChatId: number;
+  receiverAnswer: string;
+  photoUrl: string;  // Changed from photoUrls array to single photoUrl
+  videoUrl: string;
+  dateReport: Date;
+  dateResponse: Date;
+  status: string;
+}
+
+const reportSchema: Schema = new Schema({
+  reportText: { type: String, required: true },
+  department: { type: String, required: true },
+  chatId: { type: Number, required: true },
+  receiverChatId: { type: Number, required: true },
+  receiverAnswer: { type: String },
+  photoUrl: { type: String },  // Changed from photoUrls array to single photoUrl
+  videoUrl: { type: String },
+  dateReport: { type: Date, default: Date.now },
+  dateResponse: { type: Date },
+  status: { type: String, default: 'Pending' }
 });
 
-export const executors = pgTable('executors', {
-    id: serial('id').primaryKey(),
-    surnameName: varchar('surname_name', { length: 255 }),
-    telegramAcc: varchar('telegram_acc', { length: 255 }),
+// Executor Schema
+interface IExecutor extends Document {
+  fullName: string;
+  chatId: number;
+  phoneNumber: string;
+  department: string;
+}
+
+const executorSchema: Schema = new Schema({
+  fullName: { type: String, required: true },
+  chatId: { type: Number, required: true },
+  phoneNumber: { type: String, required: true, unique: true },
+  department: { type: String, required: true }
 });
 
-// TypeScript types remain the same
-export type Report = typeof reports.$inferSelect
-export type NewReport = typeof reports.$inferInsert
-export type Executor = typeof executors.$inferSelect
-export type NewExecutor = typeof executors.$inferInsert
-export type User = typeof users.$inferSelect
-export type NewUser = typeof users.$inferInsert
+// Create and export models
+export const User = mongoose.model<IUser>('User', userSchema);
+export const Report = mongoose.model<IReport>('Report', reportSchema);
+export const Executor = mongoose.model<IExecutor>('Executor', executorSchema);
