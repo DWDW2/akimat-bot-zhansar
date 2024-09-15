@@ -20,6 +20,7 @@ connectDB();
 const adminWhitelist = ['77772794404'];
 
 console.log('Bot is running...');
+
 bot.setMyCommands([
   { command: '/start', description: '🤩 Start the bot / Запустить бот / Ботты іске қосу' },
   { command: '/help', description: '🤔 Get help / Получить помощь / Көмек алу' },
@@ -57,6 +58,8 @@ interface UserState {
 
 let userState: { [key: number]: UserState } = {};
 
+let adminPanel = false;
+
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
   const user = await User.findOne({ chatId });
@@ -86,7 +89,6 @@ bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
   
-  // Ensure userState is initialized with default language
   if (!userState[chatId]) {
     const user = await User.findOne({ chatId });
     userState[chatId] = { language: user?.language || 'ru' };
@@ -196,7 +198,13 @@ async function handleHelp(chatId: number) {
 
 async function handleReport(chatId: number) {
   const language = userState[chatId]?.language || 'ru';
-  
+  const user = await User.findOne({ chatId });
+
+  if (!user) {
+    await bot.sendMessage(chatId, messages.report.notRegistered[language]);
+    return;
+  }
+
   await bot.sendMessage(chatId, messages.report.textPrompt[language]);
   
   const reportText = await new Promise<string>((resolve) => {
@@ -270,6 +278,7 @@ async function handleReport(chatId: number) {
     const newReport = new Report({
       reportText,
       department,
+      user: user.id,
       chatId,
       photoUrl,
       videoUrl,
@@ -280,11 +289,7 @@ async function handleReport(chatId: number) {
 
     await newReport.save();
 
-    // Add report to Google Sheets
     await addReportToSheet(newReport);
-
-    // Notify the assigned executor (you may want to implement this separately)
-    // await notifyExecutor(randomExecutor, newReport);
 
     await bot.sendMessage(chatId, messages.report.success[language]);
   } catch (error) {
@@ -308,9 +313,18 @@ const sheets = google.sheets({ version: 'v4', auth: jwtClient });
 
 async function addReportToSheet(report: any) {
   try {
+    const user = await User.findById(report.user);
+    if (!user) {
+      throw new Error('User not found');
+    }
+    console.log(user);
     const values = [
       [
-        report.chatId.toString(),
+        user.id,
+        user.fullName,
+        user.phoneNumber,
+        user.email || 'N/A',
+        report.chatId,
         report.reportText,
         report.department,
         report.photoUrl || 'N/A',
@@ -320,10 +334,10 @@ async function addReportToSheet(report: any) {
         report.receiverChatId.toString()
       ]
     ];
-
+    console.log(values);
     const response = await sheets.spreadsheets.values.append({
       spreadsheetId: GOOGLE_SHEET_ID,
-      range: 'Sheet1', // Adjust this if your sheet has a different name
+      range: 'Sheet1', 
       valueInputOption: 'USER_ENTERED',
       requestBody: {
         values: values
@@ -458,5 +472,24 @@ bot.on('callback_query', async (query) => {
 
   await bot.answerCallbackQuery(query.id);
 });
+
+
+bot.onText(/\/admin/, async (msg) => {
+  bot.sendMessage(msg.chat.id, 'Отправьте пароль для того что бы войти в админ панель');
+  bot.once('message', async (msg) => {
+    if(msg.text === process.env.ADMIN_PASSWORD){
+      adminPanel = true;
+      bot.sendMessage(msg.chat.id, 'Вы вошли в админ панель');
+    }else{
+      bot.sendMessage(msg.chat.id, 'Неверный пароль');
+    }
+  });
+});
+
+async function getAllReports(){
+  const reports = await Report.find({});
+  return reports;
+}
+
 
 console.log('Bot is running...');
