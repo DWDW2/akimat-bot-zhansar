@@ -2,6 +2,14 @@ import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
 import connectDB from './db/db';
 import { User, Report, Executor } from './db/shema';
+import { messages } from './constants';
+import { google } from 'googleapis';
+import { JWT } from 'google-auth-library';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import { join } from 'path';
+import { chat } from 'googleapis/build/src/apis/chat';
+import { InlineKeyboardButton, InlineKeyboardMarkup } from 'node-telegram-bot-api';
 
 dotenv.config();
 
@@ -9,288 +17,446 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN!, { polling: true });
 
 connectDB();
 
-const adminWhitelist = ['77072224104']; // Admin phone numbers
+const adminWhitelist = ['77772794404'];
 
-const departments = ['Department A', 'Department B', 'Department C'];
+console.log('Bot is running...');
+bot.setMyCommands([
+  { command: '/start', description: '🤩 Start the bot / Запустить бот / Ботты іске қосу' },
+  { command: '/help', description: '🤔 Get help / Получить помощь / Көмек алу' },
+  { command: '/report', description: '📝 Send a complaint / Отправить жалобу / Жағдайды хабарлау' },
+  { command: '/language', description: '🌐 Change language / Изменить язык / Тілді өзгерту' },
+  { command: '/register', description: '📋 Register / Зарегистрироваться / Тіркелу' }
+]);
 
-let userState: { [key: number]: any } = {};
-
-function isAdmin(phoneNumber: string): boolean {
-  return adminWhitelist.includes(phoneNumber);
+interface Department {
+  ru: string;
+  kk: string;
 }
+
+const departments: Department[] = [
+  { ru: 'Государственно-правовой отдел', kk: 'Мемлекеттік-құқықтық бөлімі' },
+  { ru: 'Финансово-хозяйственный отдел', kk: 'Қаржы-шаруашылық бөлімі' },
+  { ru: 'Отдел благоустройства', kk: 'Көріктендіру бөлімі' },
+  { ru: 'Отдел документационного обеспечения', kk: 'Құжаттамалық қамтамасыз ету бөлімі' },
+  { ru: 'Отдел занятости и социальных программ', kk: 'Жұмыспен қамту және әлеуметтік бағдарламалар бөлімі' },
+  { ru: 'Отдел инженерной и дорожной инфраструктуры', kk: 'Инженерлік және жол инфрақұрылымы бөлімі' },
+  { ru: 'Отдел культуры и развития языков', kk: 'Мәдениет және тілдерді дамыту бөлімі' },
+  { ru: 'Отдел коммунального хозяйства', kk: 'Коммуналдық шаруашылық бөлімі' },
+  { ru: 'Отдел общественного развития', kk: 'Қоғамдық дамыту бөлімі' },
+  { ru: 'Отдел организационной и контрольной работы', kk: 'Ұйымдастыру және бақылау жұмысы бөлімі' },
+  { ru: 'Отдел предпринимательства и промышленности', kk: 'Кәсіпкерлікті және өнеркәсіпті дамыту бөлімі' }
+];
+
+interface UserState {
+  language: string;
+  fullName?: string;
+  phoneNumber?: string;
+  email?: string;
+  registrationStep?: 'awaitingName' | 'awaitingPhone' | 'awaitingEmail';
+}
+
+let userState: { [key: number]: UserState } = {};
 
 bot.onText(/\/start/, async (msg) => {
   const chatId = msg.chat.id;
-  const user = await User.findOne({ chatId: chatId });
-  const admin = await Executor.findOne({ chatId: chatId });
-  if (!user && !admin) {
-    bot.sendMessage(chatId, 'Welcome! Please register first. Use /register to start.');
-  } else if (admin) {
-    bot.sendMessage(chatId, 'Welcome back! You can now receive reports.');
-  } else {
-    bot.sendMessage(chatId, 'Welcome back! Use /report to submit a new report.');
-  }
-});
+  const user = await User.findOne({ chatId });
+  const language = user?.language || 'ru'; 
+  userState[chatId] = { ...userState[chatId], language };
+  
+  const welcomeMessage = user 
+    ? messages.welcomeBackUser[language] 
+    : messages.welcome[language];
+  const commandButtons = [
+    [{ text: '🤩 Запустить бот / Ботты іске қосу' }, { text: '🤔 Получить помощь / Көмек алу' }],
+    [{ text: '📝 Отправить жалобу / Шағым жіберу' }, { text: '🌐 Изменить язык / Тілді өзгерту' }],
+    [{ text: '📋 Зарегистрироваться / Тіркелу' }]
+  ];
 
-bot.onText(/\/register/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, 'Please share your phone number:', {
+  const functionalityMessage = messages.botFunctionality[language];
+
+  await bot.sendMessage(chatId, `${welcomeMessage}\n\n${functionalityMessage}`, {
     reply_markup: {
-      keyboard: [
-        [{ text: 'Share Phone Number', request_contact: true }]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: true
+      keyboard: commandButtons,
+      resize_keyboard: true
     }
   });
-  userState[chatId] = { step: 'phoneNumber' };
 });
 
-bot.onText(/\/report/, async (msg) => {
-  const chatId = msg.chat.id;
-  const user = await User.findOne({ chatId: chatId });
-  
-  if (!user) {
-    bot.sendMessage(chatId, 'Please register first. Use /register to start.');
-  } else {
-    bot.sendMessage(chatId, 'Please choose a department:', {
-      reply_markup: {
-        keyboard: departments.map(dept => [{ text: dept }]),
-        one_time_keyboard: true
-      }
-    });
-    userState[chatId] = { step: 'department' };
-  }
-});
-
-bot.onText(/\/getmyid/, (msg) => {
-  if (msg.chat.type === 'private') {
-    const userId = msg.from?.id;
-    if (userId) {
-      bot.sendMessage(msg.chat.id, `Your User ID is: ${userId}. Keep this private and share only with the bot administrator if needed.`);
-    } else {
-      bot.sendMessage(msg.chat.id, "Couldn't retrieve your User ID.");
-    }
-  } else {
-    bot.sendMessage(msg.chat.id, "This command can only be used in private chats for security reasons.");
-  }
-});
-
-bot.on('contact', async (msg) => {
-  const chatId = msg.chat.id;
-  const phoneNumber = msg.contact.phone_number;
-  
-  if (adminWhitelist.includes(phoneNumber)) {
-    // Admin registration flow
-    userState[chatId] = { step: 'adminFullName', phoneNumber };
-    await bot.sendMessage(chatId, 'Admin registration: Please enter your full name.');
-  } else {
-    // Regular user flow
-    if (userState[chatId] && userState[chatId].step === 'phoneNumber') {
-      userState[chatId].phoneNumber = phoneNumber;
-      userState[chatId].step = 'fullName';
-      bot.sendMessage(chatId, 'Thank you. Now, please enter your full name:', {
-        reply_markup: { remove_keyboard: true }
-      });
-    }
-  }
-});
-
-bot.on('message', async (msg) => {
+bot.on("message", async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
+  
+  // Ensure userState is initialized with default language
+  if (!userState[chatId]) {
+    const user = await User.findOne({ chatId });
+    userState[chatId] = { language: user?.language || 'ru' };
+  }
 
-  if (!userState[chatId]) return;
-
-  switch (userState[chatId].step) {
-    case 'adminFullName':
-      userState[chatId].fullName = text;
-      await sendDepartmentSelection(chatId);
+  switch(text){
+    case "🤔 Получить помощь / Көмек алу":
+      await handleHelp(chatId);
       break;
-    case 'adminDepartment':
-      if (departments.includes(text)) {
-        userState[chatId].department = text;
-        await registerAdmin(chatId, userState[chatId]);
-      } else {
-        bot.sendMessage(chatId, 'Please select a valid department.');
-      }
+    case "📝 Отправить жалобу / Шағым жіберу":
+      await handleReport(chatId);
       break;
-    case 'fullName':
-      userState[chatId].fullName = text;
-      userState[chatId].step = 'language';
-      bot.sendMessage(chatId, 'Please choose your language (Русский/Қазақша):', {
-        reply_markup: {
-          keyboard: [[{ text: 'Русский' }, { text: 'Қазақша' }]],
-          resize_keyboard: true,
-          one_time_keyboard: true
-        }
-      });
+    case "🌐 Изменить язык / Тілді өзгерту":
+      await handleLanguage(chatId);
       break;
-
-    case 'language':
-      if (text === 'Русский' || text === 'Қазақша') {
-        userState[chatId].language = text;
-        userState[chatId].step = 'email';
-        bot.sendMessage(chatId, 'Please enter your email:', {
-          reply_markup: { remove_keyboard: true }
-        });
-      } else {
-        bot.sendMessage(chatId, 'Please choose either Русский or Қазақша.');
-      }
+    case "📋 Зарегистрироваться / Тіркелу":
+      await handleRegister(chatId);
       break;
-
-    case 'email':
-      userState[chatId].email = text;
-      await registerUser(chatId);
+    case "/help":
+      await handleHelp(chatId);
       break;
-
-    case 'department':
-      if (departments.includes(text!)) {
-        userState[chatId].department = text;
-        userState[chatId].step = 'reportText';
-        bot.sendMessage(chatId, 'Please describe your report:', {
-          reply_markup: { remove_keyboard: true }
-        });
-      } else {
-        bot.sendMessage(chatId, 'Please select a valid department.');
-      }
+    case "/report":
+      await handleReport(chatId);
       break;
-
-    case 'reportText':
-      userState[chatId].reportText = text;
-      userState[chatId].step = 'photo';
-      bot.sendMessage(chatId, 'Please send a photo (if any) or type "skip":');
-      break;
-
-    case 'photo':
-      if (msg.photo) {
-        userState[chatId].photoUrl = msg.photo[msg.photo.length - 1].file_id;
-        userState[chatId].step = 'video';
-        bot.sendMessage(chatId, 'Photo received. Please send a video (if any) or type "skip":');
-      } else if (text?.toLowerCase() === 'skip') {
-        userState[chatId].step = 'video';
-        bot.sendMessage(chatId, 'Please send a video (if any) or type "skip":');
-      }
-      break;
-
-    case 'video':
-      if (msg.video) {
-        userState[chatId].videoUrl = msg.video.file_id;
-        await submitReport(chatId);
-      } else if (text?.toLowerCase() === 'skip') {
-        await submitReport(chatId);
-      } else {
-        bot.sendMessage(chatId, 'Please send a video or type "skip".');
-      }
+    case "/language":
+      await handleLanguage(chatId);
+      break;  
+    case "/register":
+      await handleRegister(chatId);
       break;
   }
-});
+})
 
-async function registerUser(chatId: number) {
-  try {
-    const newUser = new User({
-      fullName: userState[chatId].fullName,
-      chatId: chatId,
-      language: userState[chatId].language,
-      phoneNumber: userState[chatId].phoneNumber,
-      email: userState[chatId].email
-    });
+async function handleHelp(chatId: number) {
+  const language = userState[chatId]?.language || 'ru';
+  
+  const helpMessage = {
+    ru: `📌 Информация о боте:
 
-    await newUser.save();
-    bot.sendMessage(chatId, 'Registration successful! You can now use /report to submit reports.');
-    delete userState[chatId];
-  } catch (error) {
-    console.error('Error registering user:', error);
-    bot.sendMessage(chatId, 'An error occurred during registration. Please try again.');
-  }
+1. Как зарегистрироваться:
+   • Используйте команду /register или нажмите кнопку "📋 Зарегистрироваться"
+   • Следуйте инструкциям для ввода имени, номера телефона и email
+
+2. Как отправить жалобу:
+   • Используйте команду /report или нажмите кнопку "📝 Отправить жалобу"
+   • Опишите вашу проблему
+   • Выберите соответствующий отдел
+   • При желании, прикрепите фото ��ли видео
+
+3. Информация об отделах:
+   • Государственно-правовой отдел
+   • Финансово-хозяйственный отдел
+   • Отдел благоустройства
+   • Отдел документационного обеспечения
+   • Отдел занятости и социальных программ
+   • Отдел инженерной и дорожной инфраструктуры
+   • Отдел культуры и развития языков
+   • Отдел коммунального хозяйства
+   • Отдел общественного развития
+   • Отдел организационной и контрольной работы
+   • Отдел предпринимательства и промышленности
+
+Для смены языка используйте команду /language или нажмите кнопку "🌐 Изменить язык"`,
+
+    kk: `📌 Бот туралы ақпарат:
+
+1. Қалай тіркелуге болады:
+   • /register командасын пайдаланыңыз немесе "📋 Тіркелу" түймесін басыңыз
+   • Аты-жөніңізді, телефон нөміріңізді және email енгізу нұсқауларын орындаңыз
+
+2. Шағымды қалай жіберуге болады:
+   • /report командасын пайдаланыңыз немесе "📝 Шағым жіберу" түймесін басыңыз
+   • Мәселеңізді сипаттаңыз
+   • Тиісті бөлімді таңдаңыз
+   • Қалауыңыз бойнша фото немесе бейне тіркеңіз
+
+3. Бөлімдер туралы ақпарат:
+   • Мемлекеттік-құқықтық бөлімі
+   • Қаржы-шаруашылық бөлімі
+   • Көріктендіру бөлімі
+   • Құжаттамалық қамтамасыз ету бөлімі
+   • Жұмыспен қамту және әлеуметтік бағдарламалар бөлімі
+   • Инженерлік және жол инфрақұрылымы бөлімі
+   • Мәдениет және тілдерді дамыту бөлімі
+   • Коммуналдық шаруашылық бөлімі
+   • Қоғамдық дамыту бөлімі
+   • Ұйымдастыру және бақылау жұмысы бөлімі
+   • Кәсіпкерлікті және өнеркәсіпті дамыту бөлімі
+
+Тілді өзгерту үшін /language командасын пайдаланыңыз не��есе "🌐 Тілді өзгерту" түймесін басыңыз`
+  };
+
+  const keyboard: InlineKeyboardMarkup = {
+    inline_keyboard: [
+      [
+        { text: language === 'ru' ? '📋 Зарегистрироваться' : '📋 Тіркелу', callback_data: 'register' },
+        { text: language === 'ru' ? '📝 Отправить жалобу' : '📝 Шағым жіберу', callback_data: 'report' }
+      ],
+      [
+        { text: language === 'ru' ? '🌐 Изменить язык' : '🌐 Тілді өзгерту', callback_data: 'language' }
+      ]
+    ]
+  };
+
+  await bot.sendMessage(chatId, helpMessage[language], { reply_markup: keyboard });
 }
 
-
-
-async function submitReport(chatId: number) {
-  try {
-    const user = await User.findOne({ chatId: chatId });
-    if (!user) throw new Error('User not found');
-
-    const executors = await Executor.find({ department: userState[chatId].department });
-    if (executors.length === 0) throw new Error('No executors found for this department');
-    
-    const randomExecutor = executors[Math.floor(Math.random() * executors.length)];
-    
-    const newReport = new Report({
-      reportText: userState[chatId].reportText,
-      department: userState[chatId].department,
-      chatId: chatId,
-      receiverChatId: randomExecutor.chatId,
-      photoUrl: userState[chatId].photoUrl || '',
-      videoUrl: userState[chatId].videoUrl || '',
-      dateReport: new Date(),
-      status: 'Pending'
-    });
-
-    await newReport.save();
-
-    bot.sendMessage(chatId, 'Your report has been submitted successfully!');
-    bot.sendMessage(randomExecutor.chatId, 'New report has been submitted!');
-    //send message to random executor. Send reportText, photo from photoUrl, video from videoUrl
-    await sendReportToExecutor(randomExecutor.chatId, newReport);
-    delete userState[chatId];
-  } catch (error) {
-    console.error('Error submitting report:', error);
-    bot.sendMessage(chatId, 'An error occurred while submitting your report. Please try again.');
-  }
-}
-
-async function sendReportToExecutor(executorChatId: number, report: any) {
-    try {
-      // Send report text
-      await bot.sendMessage(executorChatId, `New report has been submitted!\n\nReport text: ${report.reportText}`);
+async function handleReport(chatId: number) {
+  const language = userState[chatId]?.language || 'ru';
   
-      // Send photo if available
-      if (report.photoUrl) {
-        await bot.sendPhoto(executorChatId, report.photoUrl, { caption: 'Report photo' });
+  await bot.sendMessage(chatId, messages.report.textPrompt[language]);
+  
+  const reportText = await new Promise<string>((resolve) => {
+    bot.once('message', (msg) => {
+      if (msg.chat.id === chatId && msg.text) {
+        resolve(msg.text);
       }
-  
-      // Send video if available
-      if (report.videoUrl) {
-        await bot.sendVideo(executorChatId, report.videoUrl, { caption: 'Report video' });
-      }
-  
-      // Confirm report sent
-      await bot.sendMessage(executorChatId, 'Please review the report and respond.');
-    } catch (error) {
-      console.error('Error sending report to executor:', error);
-      // Handle error (e.g., notify admin, log it, etc.)
-    }
-  }
-
-async function registerAdmin(chatId: number, adminData: any) {
-  try {
-    const newExecutor = new Executor({
-      fullName: adminData.fullName,
-      chatId: chatId,
-      phoneNumber: adminData.phoneNumber,
-      department: adminData.department
     });
+  });
 
-    await newExecutor.save();
-    bot.sendMessage(chatId, 'Admin registration successful! You can now receive reports.');
-    delete userState[chatId];
-  } catch (error) {
-    console.error('Error registering admin:', error);
-    bot.sendMessage(chatId, 'An error occurred during registration. Please try again.');
-  }
-}
-
-async function sendDepartmentSelection(chatId: number) {
-  userState[chatId].step = 'adminDepartment';
-  bot.sendMessage(chatId, 'Please select your department:', {
+  const departmentOptions = departments.map(dept => ({ text: dept[language as keyof Department] }));
+  
+  await bot.sendMessage(chatId, messages.report.departmentPrompt[language], {
     reply_markup: {
-      keyboard: departments.map(dept => [{ text: dept }]),
+      keyboard: departmentOptions.map(dept => [dept]),
       one_time_keyboard: true,
       resize_keyboard: true
     }
   });
+
+  const department = await new Promise<string>((resolve) => {
+    bot.once('message', (msg) => {
+      if (msg.chat.id === chatId && msg.text) {
+        const selectedDept = departments.find(dept => dept[language as keyof Department] === msg.text);
+        if (selectedDept) {
+          resolve(selectedDept[language as keyof Department]);
+        }
+      }
+    });
+  });
+
+  await bot.sendMessage(chatId, messages.report.photoPrompt[language]);
+  
+  const photoUrl = await new Promise<string | null>((resolve) => {
+    bot.once('message', (msg) => {
+      if (msg.chat.id === chatId) {
+        if (msg.photo && msg.photo.length > 0) {
+          const fileId = msg.photo[msg.photo.length - 1].file_id;
+          bot.getFileLink(fileId).then(url => resolve(url));
+        } else {
+          resolve(null);
+        }
+      }
+    });
+  });
+
+  await bot.sendMessage(chatId, messages.report.videoPrompt[language]);
+  
+  const videoUrl = await new Promise<string | null>((resolve) => {
+    bot.once('message', (msg) => {
+      if (msg.chat.id === chatId) {
+        if (msg.video) {
+          bot.getFileLink(msg.video.file_id).then(url => resolve(url));
+        } else {
+          resolve(null);
+        }
+      }
+    });
+  });
+
+  const executors = await Executor.find({});
+  
+  if (executors.length === 0) {
+    await bot.sendMessage(chatId, messages.report.noExecutors[language]);
+    return;
+  }
+
+  const randomExecutor = executors[Math.floor(Math.random() * executors.length)];
+
+  try {
+    const newReport = new Report({
+      reportText,
+      department,
+      chatId,
+      photoUrl,
+      videoUrl,
+      dateReport: new Date(),
+      status: 'assigned',
+      receiverChatId: randomExecutor.chatId
+    });
+
+    await newReport.save();
+
+    // Add report to Google Sheets
+    await addReportToSheet(newReport);
+
+    // Notify the assigned executor (you may want to implement this separately)
+    // await notifyExecutor(randomExecutor, newReport);
+
+    await bot.sendMessage(chatId, messages.report.success[language]);
+  } catch (error) {
+    console.error('Error saving report:', error);
+    await bot.sendMessage(chatId, messages.report.error[language]);
+  }
 }
+
+const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
+const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
+const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
+
+const jwtClient = new JWT({
+  email: GOOGLE_CLIENT_EMAIL,
+  key: GOOGLE_PRIVATE_KEY,
+  scopes: SCOPES,
+});
+
+const sheets = google.sheets({ version: 'v4', auth: jwtClient });
+
+async function addReportToSheet(report: any) {
+  try {
+    const values = [
+      [
+        report.chatId.toString(),
+        report.reportText,
+        report.department,
+        report.photoUrl || 'N/A',
+        report.videoUrl || 'N/A',
+        report.dateReport.toISOString(),
+        report.status,
+        report.receiverChatId.toString()
+      ]
+    ];
+
+    const response = await sheets.spreadsheets.values.append({
+      spreadsheetId: GOOGLE_SHEET_ID,
+      range: 'Sheet1', // Adjust this if your sheet has a different name
+      valueInputOption: 'USER_ENTERED',
+      requestBody: {
+        values: values
+      }
+    });
+
+    console.log('Report added to Google Sheets:', response.data);
+  } catch (error) {
+    console.error('Error adding report to Google Sheets:', error);
+  }
+}
+
+async function askLanguage(chatId: number): Promise<void> {
+  const user = await User.findOne({ chatId });
+  const currentLanguage = user?.language || userState[chatId]?.language || 'ru';
+  
+  await bot.sendMessage(chatId, '🌎 Выберите язык / Тілді таңдаңыз:', {
+    reply_markup: {
+      keyboard: [
+        [{ text: '🇷🇺 Русский' }, { text: '🇰🇿 Қазақша' }]
+      ],
+      one_time_keyboard: true,
+      resize_keyboard: true
+    }
+  });
+
+  return new Promise((resolve) => {
+    bot.once('message', async (msg) => {
+      if (msg.chat.id === chatId) {
+        const lang = msg.text;
+        if (lang === '🇷🇺 Русский' || lang === '🇰🇿 Қазақша') {
+          const newLanguage = lang === '🇷🇺 Русский' ? 'ru' : 'kk';
+          userState[chatId] = { ...userState[chatId], language: newLanguage };
+          await bot.sendMessage(chatId, '🌎 Язык успешно изменен! / Тілді өзгерту сәтті аяқталды!');
+          if (user) {
+            user.language = newLanguage;
+            await user.save();
+          }
+        } else {
+          userState[chatId] = { ...userState[chatId], language: currentLanguage };
+        }
+        resolve();
+      }
+    });
+  });
+}
+
+async function handleLanguage(chatId: number) {
+  await askLanguage(chatId);
+}
+
+async function handleRegister(chatId: number) {
+  const language = userState[chatId]?.language || 'ru';
+  
+  await bot.sendMessage(chatId, messages.registration.namePrompt[language]);
+  
+  userState[chatId] = { 
+    ...userState[chatId], 
+    language,
+    registrationStep: 'awaitingName' 
+  };
+  
+  bot.once('message', async (msg) => {
+    if (msg.chat.id === chatId && msg.text) {
+      const fullName = msg.text;
+      userState[chatId] = { 
+        ...userState[chatId], 
+        fullName, 
+        registrationStep: 'awaitingPhone' 
+      };
+      
+      await bot.sendMessage(chatId, messages.registration.phonePrompt[language]);
+      
+      bot.once('message', async (phoneMsg) => {
+        if (phoneMsg.chat.id === chatId && phoneMsg.text) {
+          const phoneNumber = phoneMsg.text;
+          userState[chatId] = { 
+            ...userState[chatId], 
+            phoneNumber, 
+            registrationStep: 'awaitingEmail' 
+          };
+
+          await bot.sendMessage(chatId, messages.registration.emailPrompt[language]);
+
+          bot.once('message', async (emailMsg) => {
+            if (emailMsg.chat.id === chatId && emailMsg.text) {
+              const email = emailMsg.text;
+              
+              try {
+                await User.findOneAndUpdate(
+                  { chatId },
+                  { 
+                    chatId,
+                    fullName: userState[chatId].fullName,
+                    phoneNumber: userState[chatId].phoneNumber,
+                    email,
+                    language
+                  },
+                  { upsert: true, new: true }
+                );
+                
+                await bot.sendMessage(chatId, messages.registration.success[language]);
+              } catch (error) {
+                console.error('Error during registration:', error);
+                await bot.sendMessage(chatId, messages.registration.error[language]);
+              }
+            
+              userState[chatId] = { language };
+            }
+          });
+        }
+      });
+    }
+  });
+}
+
+bot.on('callback_query', async (query) => {
+  const chatId = query.message?.chat.id;
+  if (!chatId) return;
+
+  switch (query.data) {
+    case 'register':
+      await handleRegister(chatId);
+      break;
+    case 'report':
+      await handleReport(chatId);
+      break;
+    case 'language':
+      await handleLanguage(chatId);
+      break;
+  }
+
+  await bot.answerCallbackQuery(query.id);
+});
 
 console.log('Bot is running...');

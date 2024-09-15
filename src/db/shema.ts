@@ -25,7 +25,7 @@ interface IReport extends Document {
   chatId: number;
   receiverChatId: number;
   receiverAnswer: string;
-  photoUrl: string;  // Changed from photoUrls array to single photoUrl
+  photoUrl: string;  
   videoUrl: string;
   dateReport: Date;
   dateResponse: Date;
