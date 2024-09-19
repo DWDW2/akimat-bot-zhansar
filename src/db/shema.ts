@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document, mongo } from "mongoose";
+import mongoose, { Schema, Document } from "mongoose";
 
 // User Schema
 interface IUser extends Document {
@@ -92,6 +92,28 @@ const executorSchema: Schema = new Schema({
   assignedReports: [{ type: mongoose.Types.ObjectId, default: null }],
 });
 
+interface IAdmin extends Document {
+  fullname: string;
+  googleSheetId: string;
+  chat_id: number;
+}
+
+const adminSchema = new Schema({
+  fullname: {
+    type: String,
+    required: true,
+  },
+  googleSheetId: {
+    type: String,
+    default: null,
+  },
+  chat_id: {
+    type: Number,
+    required: true,
+  },
+});
+
+export const Admin = mongoose.model<IAdmin>("Admin", adminSchema);
 export const User = mongoose.model<IUser>("User", userSchema);
 export const Report = mongoose.model<IReport>("Report", reportSchema);
 export const Executor = mongoose.model<IExecutor>("Executor", executorSchema);

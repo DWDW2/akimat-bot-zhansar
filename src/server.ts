@@ -1,7 +1,7 @@
 import TelegramBot, { ReplyKeyboardMarkup } from "node-telegram-bot-api";
 import dotenv from "dotenv";
 import connectDB from "./db/db";
-import { User, Report, Executor } from "./db/shema";
+import { User, Report, Executor, Admin } from "./db/shema";
 import { messages } from "./constants";
 import { google } from "googleapis";
 import { JWT } from "google-auth-library";
@@ -28,7 +28,6 @@ const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY?.replace(
   "\n"
 );
 const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
-const GOOGLE_SHEET_ID = process.env.GOOGLE_SHEET_ID;
 
 const jwtClient = new JWT({
   email: GOOGLE_CLIENT_EMAIL,
@@ -354,7 +353,6 @@ async function handleReport(chatId: number) {
       reportText,
       department,
       user: user.id,
-      chatId,
       photoUrl,
       videoUrl,
       dateReport: new Date(),
@@ -377,18 +375,102 @@ const sheets = google.sheets({ version: "v4", auth: jwtClient });
 
 async function addReportToSheet(report: any) {
   try {
+    // Fetch the user and admin data
     const user = await User.findById(report.user);
+    const admin = await Admin.find({ googleSheetId: { $ne: null } });
+
+    if (!admin || admin.length === 0) {
+      return false;
+    }
     if (!user) {
       throw new Error("User not found");
     }
-    console.log(user);
+
+    // Define the column names
+    const columnNames = [
+      "User ID",
+      "Full Name",
+      "Phone Number",
+      "Email",
+      "Chat ID",
+      "Report Text",
+      "Department",
+      "Photo URL",
+      "Video URL",
+      "Report Date",
+      "Status",
+      "Receiver Chat ID",
+    ];
+
+    const sheetData = await sheets.spreadsheets.values.get({
+      spreadsheetId: admin[0].googleSheetId,
+      range: "Лист1!A1:L1",
+    });
+
+    const firstRow = sheetData.data.values ? sheetData.data.values[0] : [];
+
+    const sheetInfo = await sheets.spreadsheets.get({
+      spreadsheetId: admin[0].googleSheetId,
+    });
+
+    const sheetId = sheetInfo.data.sheets?.[0].properties?.sheetId;
+    if (
+      !firstRow.length ||
+      !firstRow.every((col, idx) => col === columnNames[idx])
+    ) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: admin[0].googleSheetId,
+        range: "Лист1!A1",
+        valueInputOption: "RAW",
+        requestBody: {
+          values: [columnNames],
+        },
+      });
+      console.log("Column names appended to Google Sheets.");
+
+      if (sheetId !== undefined) {
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: admin[0].googleSheetId,
+          requestBody: {
+            requests: [
+              {
+                repeatCell: {
+                  range: {
+                    sheetId: sheetId, // Use the retrieved sheetId
+                    startRowIndex: 0, // First row (header)
+                    endRowIndex: 1, // Only the first row
+                    startColumnIndex: 0,
+                    endColumnIndex: columnNames.length, // Apply to all columns
+                  },
+                  cell: {
+                    userEnteredFormat: {
+                      backgroundColor: { red: 0.0, green: 0.8, blue: 0.0 }, // Green background
+                      textFormat: {
+                        bold: true,
+                        fontSize: 12,
+                      },
+                    },
+                  },
+                  fields: "userEnteredFormat(backgroundColor,textFormat)", // Specify what to update
+                },
+              },
+            ],
+          },
+        });
+
+        console.log("Green column formatting applied.");
+      }
+    } else {
+      console.log("Column names already exist.");
+    }
+
     const values = [
       [
         user.id,
         user.fullName,
         user.phoneNumber,
         user.email || "N/A",
-        report.chatId,
+        report.receiverChatId,
         report.reportText,
         report.department,
         report.photoUrl || "N/A",
@@ -398,17 +480,52 @@ async function addReportToSheet(report: any) {
         report.receiverChatId.toString(),
       ],
     ];
-    console.log(values);
+
     const response = await sheets.spreadsheets.values.append({
-      spreadsheetId: GOOGLE_SHEET_ID,
-      range: "Sheet1",
+      spreadsheetId: admin[0].googleSheetId,
+      range: "Лист1",
       valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
       requestBody: {
         values: values,
       },
     });
 
     console.log("Report added to Google Sheets:", response.data);
+
+    if (sheetId !== undefined) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: admin[0].googleSheetId,
+        requestBody: {
+          requests: [
+            {
+              repeatCell: {
+                range: {
+                  sheetId: sheetId,
+                  startRowIndex: 1,
+                  endRowIndex: parseInt(
+                    response.data.updates.updatedRange
+                      .split(":")[1]
+                      .replace(/\D/g, ""),
+                    10
+                  ),
+                  startColumnIndex: 0,
+                  endColumnIndex: columnNames.length,
+                },
+                cell: {
+                  userEnteredFormat: {
+                    wrapStrategy: "OVERFLOW_CELL",
+                  },
+                },
+                fields: "userEnteredFormat(wrapStrategy)",
+              },
+            },
+          ],
+        },
+      });
+
+      console.log("Text overflow formatting applied to report data.");
+    }
   } catch (error) {
     console.error("Error adding report to Google Sheets:", error);
   }
@@ -533,8 +650,36 @@ async function handleRegister(chatId: number) {
     }
   });
 }
+function extractGoogleSheetId(url): string | false {
+  const regex = /\/d\/([a-zA-Z0-9-_]+)\//;
+  const match = url.match(regex);
 
-async function handleGoogleSheetId(chatId: number) {}
+  if (match && match[1]) {
+    return match[1];
+  } else {
+    return false;
+  }
+}
+
+async function handleGoogleSheetId(chatId: number) {
+  bot.sendMessage(chatId, "Отправьте гугл таблицу");
+  bot.once("message", async (msg) => {
+    const googleSheetUrl = msg.text;
+    const googleSheetId = extractGoogleSheetId(googleSheetUrl);
+    if (googleSheetId === false) {
+      bot.sendMessage(
+        chatId,
+        "Ссылка на гугл таблицу неверная, попбробуйте снова"
+      );
+    }
+    const admin = Admin.findOneAndUpdate(
+      { chat_id: msg.chat.id },
+      { googleSheetId: googleSheetId },
+      { new: true }
+    );
+    (await admin).save();
+  });
+}
 
 async function handleRegisterExecutor(chatId: number) {
   const register_keyboard: ReplyKeyboardMarkup = {
@@ -588,36 +733,6 @@ async function handleRegisterExecutor(chatId: number) {
   });
 }
 
-bot.on("callback_query", async (query) => {
-  const chatId = query.message?.chat.id;
-  if (!chatId) return;
-
-  switch (query.data) {
-    case "register":
-      await handleRegister(chatId);
-      break;
-    case "report":
-      await handleReport(chatId);
-      break;
-    case "language":
-      await handleLanguage(chatId);
-      break;
-    case "googleSheet":
-      if (!adminPanel) {
-        await bot.sendMessage(chatId, "Вам не дозволенно делать это");
-      }
-      await handleGoogleSheetId(chatId);
-      break;
-    case "executorRegister":
-      if (!executorPanel) {
-        bot.sendMessage(chatId, "Вам не позволена данная операция");
-      }
-      await handleRegisterExecutor(chatId);
-  }
-
-  await bot.answerCallbackQuery(query.id);
-});
-
 bot.onText(/\/admin/, async (msg) => {
   bot.sendMessage(
     msg.chat.id,
@@ -625,6 +740,11 @@ bot.onText(/\/admin/, async (msg) => {
   );
   bot.once("message", async (msg) => {
     if (msg.text === process.env.ADMIN_PASSWORD) {
+      const admin = new Admin({
+        chat_id: msg.chat.id,
+        fullname: msg.chat.username,
+      });
+      await admin.save();
       adminPanel = true;
       const inline_keyboard: InlineKeyboardMarkup = {
         inline_keyboard: [
@@ -661,6 +781,36 @@ bot.onText(/\/executor/, async (msg) => {
       bot.sendMessage(msg.chat.id, "Неверный пароль");
     }
   });
+});
+
+bot.on("callback_query", async (query) => {
+  const chatId = query.message?.chat.id;
+  if (!chatId) return;
+
+  switch (query.data) {
+    case "register":
+      await handleRegister(chatId);
+      break;
+    case "report":
+      await handleReport(chatId);
+      break;
+    case "language":
+      await handleLanguage(chatId);
+      break;
+    case "googleSheet":
+      if (!adminPanel) {
+        await bot.sendMessage(chatId, "Вам не дозволенно делать это");
+      }
+      await handleGoogleSheetId(chatId);
+      break;
+    case "executorRegister":
+      if (!executorPanel) {
+        bot.sendMessage(chatId, "Вам не позволена данная операция");
+      }
+      await handleRegisterExecutor(chatId);
+  }
+
+  await bot.answerCallbackQuery(query.id);
 });
 
 console.log("Bot is running...");
