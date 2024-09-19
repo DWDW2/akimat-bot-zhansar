@@ -392,7 +392,6 @@ async function addReportToSheet(report: any) {
       "Full Name",
       "Phone Number",
       "Email",
-      "Chat ID",
       "Report Text",
       "Department",
       "Photo URL",
@@ -402,31 +401,45 @@ async function addReportToSheet(report: any) {
       "Receiver Chat ID",
     ];
 
-    const sheetData = await sheets.spreadsheets.values.get({
-      spreadsheetId: admin[0].googleSheetId,
-      range: "Лист1!A1:L1",
-    });
-
-    const firstRow = sheetData.data.values ? sheetData.data.values[0] : [];
-
+    // Fetch spreadsheet details
     const sheetInfo = await sheets.spreadsheets.get({
       spreadsheetId: admin[0].googleSheetId,
     });
 
-    const sheetId = sheetInfo.data.sheets?.[0].properties?.sheetId;
+    const sheetsList = sheetInfo.data.sheets;
+    if (!sheetsList || sheetsList.length === 0) {
+      throw new Error("No sheets found in the spreadsheet.");
+    }
+
+    // Use the first available sheet
+    const firstSheet = sheetsList[0].properties?.title;
+    const sheetId = sheetsList[0].properties?.sheetId;
+
+    if (!firstSheet || sheetId === undefined) {
+      throw new Error("Sheet details not found.");
+    }
+
+    // Check and add column names if they do not exist
+    const sheetData = await sheets.spreadsheets.values.get({
+      spreadsheetId: admin[0].googleSheetId,
+      range: `${firstSheet}!A1:L1`,
+    });
+
+    const firstRow = sheetData.data.values ? sheetData.data.values[0] : [];
+
     if (
       !firstRow.length ||
       !firstRow.every((col, idx) => col === columnNames[idx])
     ) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: admin[0].googleSheetId,
-        range: "Лист1!A1",
+        range: `${firstSheet}!A1`,
         valueInputOption: "RAW",
         requestBody: {
           values: [columnNames],
         },
       });
-      console.log("Column names appended to Google Sheets.");
+      console.log("Column names added to the first sheet.");
 
       if (sheetId !== undefined) {
         await sheets.spreadsheets.batchUpdate({
@@ -436,41 +449,40 @@ async function addReportToSheet(report: any) {
               {
                 repeatCell: {
                   range: {
-                    sheetId: sheetId, // Use the retrieved sheetId
-                    startRowIndex: 0, // First row (header)
-                    endRowIndex: 1, // Only the first row
+                    sheetId: sheetId,
+                    startRowIndex: 0,
+                    endRowIndex: 1,
                     startColumnIndex: 0,
-                    endColumnIndex: columnNames.length, // Apply to all columns
+                    endColumnIndex: columnNames.length,
                   },
                   cell: {
                     userEnteredFormat: {
-                      backgroundColor: { red: 0.0, green: 0.8, blue: 0.0 }, // Green background
                       textFormat: {
                         bold: true,
-                        fontSize: 12,
+                        fontSize: 12, // Larger font size
                       },
                     },
                   },
-                  fields: "userEnteredFormat(backgroundColor,textFormat)", // Specify what to update
+                  fields: "userEnteredFormat(backgroundColor,textFormat)",
                 },
               },
             ],
           },
         });
 
-        console.log("Green column formatting applied.");
+        console.log("Formatting applied to column names.");
       }
     } else {
       console.log("Column names already exist.");
     }
 
+    // Prepare the values for the report
     const values = [
       [
         user.id,
         user.fullName,
         user.phoneNumber,
         user.email || "N/A",
-        report.receiverChatId,
         report.reportText,
         report.department,
         report.photoUrl || "N/A",
@@ -481,9 +493,10 @@ async function addReportToSheet(report: any) {
       ],
     ];
 
+    // Append the new report data
     const response = await sheets.spreadsheets.values.append({
       spreadsheetId: admin[0].googleSheetId,
-      range: "Лист1",
+      range: `${firstSheet}`,
       valueInputOption: "USER_ENTERED",
       insertDataOption: "INSERT_ROWS",
       requestBody: {
@@ -491,8 +504,12 @@ async function addReportToSheet(report: any) {
       },
     });
 
-    console.log("Report added to Google Sheets:", response.data);
+    console.log("Report added to the first sheet:", response.data);
 
+    // Apply text overflow formatting to newly appended rows
+    const lastRowIndex = response.data.updates.updatedRange
+      .split(":")[1]
+      .replace(/\D/g, "");
     if (sheetId !== undefined) {
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: admin[0].googleSheetId,
@@ -503,12 +520,7 @@ async function addReportToSheet(report: any) {
                 range: {
                   sheetId: sheetId,
                   startRowIndex: 1,
-                  endRowIndex: parseInt(
-                    response.data.updates.updatedRange
-                      .split(":")[1]
-                      .replace(/\D/g, ""),
-                    10
-                  ),
+                  endRowIndex: parseInt(lastRowIndex, 10),
                   startColumnIndex: 0,
                   endColumnIndex: columnNames.length,
                 },
